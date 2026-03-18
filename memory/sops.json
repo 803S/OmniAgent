@@ -1,0 +1,432 @@
+{
+  "sop_hash_1996548982032800524": {
+    "domain_name": "恶意文件沙箱关联查询",
+    "role_id": "role_sandbox_hash_analyst",
+    "activation_condition": "告警中包含Unknown或Suspicious信誉的可执行文件，且该文件具有MD5或SHA256哈希值",
+    "exact_match_signatures": [
+      "Unknown",
+      "Suspicious",
+      "MD5:",
+      "SHA256:",
+      "index=sandbox",
+      ".exe",
+      ".dll",
+      "NoTrust"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_hash_md5",
+        "instruction": "从告警中提取'文件MD5'字段，格式为32位十六进制字符串"
+      },
+      {
+        "field_name": "file_hash_sha256",
+        "instruction": "从告警中提取'文件SHA256'字段，格式为64位十六进制字符串"
+      },
+      {
+        "field_name": "file_reputation",
+        "instruction": "提取'文件信誉'字段，识别Unknown、Suspicious、Malware等值"
+      },
+      {
+        "field_name": "file_path",
+        "instruction": "提取'文件路径'字段，记录完整路径"
+      },
+      {
+        "field_name": "file_source",
+        "instruction": "提取'文件来源'字段，识别IM、NewFile、InjectProc等来源标签"
+      },
+      {
+        "field_name": "process_chain",
+        "instruction": "提取'进程链详情'字段，记录完整的进程调用链"
+      },
+      {
+        "field_name": "attack_techniques",
+        "instruction": "提取'ATT&CK技术'字段，识别T1547、T1566等技术编号"
+      },
+      {
+        "field_name": "sandbox_query_url",
+        "instruction": "构造沙箱查询URL：https://siem.sf-express.com/zh-CN/app/TA-siem-tookit/search?q=search%20index%3Dsandbox%20[HASH_VALUE]"
+      }
+    ],
+    "action_rules": [
+      "若文件信誉为Unknown且来源包含IM、NewFile或InjectProc，则必须在沙箱中查询该hash",
+      "沙箱查询结果中若发现进程注入、远程线程、注册表修改等恶意行为，则确认为真实威胁",
+      "若多个ATT&CK技术在同一进程链中出现（如T1547+T1566+进程注入），则威胁等级提升至高危",
+      "沙箱未检出恶意行为但告警评分≥40分，则标记为'需人工复核'",
+      "若沙箱确认恶意，立即推送至终端隔离流程，同时更新文件信誉库"
+    ],
+    "verified_urls": [],
+    "created_at": "2026-03-09T17:34:29.881185"
+  },
+  "sop_hash_-7272134309899875852": {
+    "domain_name": "文件MD5沙箱关联查询",
+    "role_id": "role_sandbox_hash_analyst",
+    "activation_condition": "告警详情中包含文件MD5哈希值字段，需要关联沙箱数据库进行文件威胁情报查询",
+    "exact_match_signatures": [
+      "file_md5",
+      "MD5",
+      "index=sandbox",
+      "[a-f0-9]{32}"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_md5",
+        "instruction": "从告警详情中提取文件MD5值（32位十六进制字符串）"
+      },
+      {
+        "field_name": "sandbox_query_url",
+        "instruction": "生成SIEM沙箱查询链接，将MD5值插入URL的search参数中"
+      }
+    ],
+    "action_rules": [
+      "若告警包含file_md5或‘文件MD5’字段，自动生成沙箱查询链接",
+      "链接基础URL：https://siem.sf-express.com/zh-CN/app/TA-siem-tookit/search",
+      "查询参数：q=search%20index%3Dsandbox%20[MD5_VALUE]&display.page.search.mode=verbose&dispatch.sample_ratio=1&workload_pool=&earliest=-30d%40d&latest=now&display.page.search.tab=events&display.general.type=events",
+      "在分析报告中提供可点击的沙箱查询链接"
+    ],
+    "verified_urls": [],
+    "created_at": "2026-03-09T19:17:21.824328"
+  },
+  "sop_hash_-724805022590789159": {
+    "domain_name": "沙箱加密压缩包告警处置",
+    "role_id": "role_sandbox_hash_analyst",
+    "activation_condition": "沙箱检测到加密压缩包，无法直接分析内容，需要关联Hash情报和用户确认",
+    "exact_match_signatures": [
+      "sourcetype=sandbox:threatbook:report",
+      "E-T1566",
+      "encrypted",
+      "zip",
+      "MD5",
+      "SHA256"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_md5",
+        "instruction": "提取压缩包文件的MD5值，用于威胁情报查询"
+      },
+      {
+        "field_name": "file_sha256",
+        "instruction": "提取压缩包文件的SHA256值，用于样本报告查询"
+      },
+      {
+        "field_name": "sender_id",
+        "instruction": "提取发送人工号，用于联系确认"
+      },
+      {
+        "field_name": "receiver_ips",
+        "instruction": "提取接收人IP列表，用于追踪传播范围"
+      },
+      {
+        "field_name": "inner_file_list",
+        "instruction": "提取压缩包内文件列表和对应Hash，判断文件类型风险"
+      },
+      {
+        "field_name": "user_action",
+        "instruction": "提取用户是否打开/解压文件的状态"
+      }
+    ],
+    "action_rules": [
+      "若user_action=否，告警等级降低，建议联系发送人确认",
+      "若user_action=是，立即隔离相关主机，升级为高危告警",
+      "若inner_file_list包含可执行文件(.exe/.dll/.scr)，升级为高危",
+      "若inner_file_list为空或Hash为d41d8cd98f00b204e9800998ecf8427e，判定为可疑加密或损坏文件",
+      "自动生成威胁情报查询链接(MD5/SHA256)供分析师快速研判"
+    ],
+    "verified_urls": [],
+    "created_at": "2026-03-09T20:28:17.955202"
+  },
+  "sop_hash_2854958130518664820": {
+    "domain_name": "Msiexec调用DLL告警-内部安全软件白名单",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "检测到Msiexec进程调用DLL的ProcessCreate事件，且DLL路径包含McAfee、Kaspersky等内部安全软件目录",
+    "exact_match_signatures": [
+      "Msiexec调用Dllunregisterserver函数",
+      "ProcessCreate",
+      "ma_compat_updater.dll",
+      "ma_compat_agent.dll",
+      "Program Files\\McAfee\\Agent"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "dll_path",
+        "instruction": "从操作目标-进程命令行中提取DLL完整路径"
+      },
+      {
+        "field_name": "dll_name",
+        "instruction": "提取DLL文件名（如ma_compat_updater.dll）"
+      },
+      {
+        "field_name": "source_process",
+        "instruction": "提取父进程名称（msiexec.exe）"
+      },
+      {
+        "field_name": "target_ip",
+        "instruction": "提取终端IP地址"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "自动判定规则",
+        "action_type": "text_constraint",
+        "constraint": "若dll_path包含'McAfee\\Agent'或'Kaspersky'等内部安全软件标识目录，则自动判定为【正常-内部软件维护】，告警等级降低至【信息】，无需人工审核"
+      }
+    ],
+    "created_at": "2026-03-10T11:17:54.669698"
+  },
+  "sop_hash_-2112627043186449743": {
+    "domain_name": "McAfee代理更新与Steam兼容性检查",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "检测到msiexec调用McAfee DLL或Steam vulkandriverquery进程，且文件签名有效",
+    "exact_match_signatures": [
+      "msiexec.exe",
+      "ma_compat_updater.dll",
+      "ma_compat_agent.dll",
+      "vulkandriverquery.exe",
+      "DllUnregisterServer",
+      "T1218.007"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "target_process",
+        "instruction": "提取操作目标进程名（如MsiExec.exe或vulkandriverquery.exe）"
+      },
+      {
+        "field_name": "target_dll",
+        "instruction": "提取目标DLL路径（如ma_compat_updater.dll）"
+      },
+      {
+        "field_name": "file_md5",
+        "instruction": "提取操作目标文件的MD5哈希值"
+      },
+      {
+        "field_name": "source_ip",
+        "instruction": "提取终端IP地址"
+      },
+      {
+        "field_name": "signature_status",
+        "instruction": "提取文件签名状态（Valid/Invalid）"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "告警判定",
+        "action_type": "text_constraint",
+        "constraint": "当检测到以下全部条件时，自动判定为【正常】：(1)操作者为msiexec.exe或services.exe；(2)目标DLL来自McAfee Agent目录或Steam目录；(3)文件签名状态=Valid；(4)文件信誉=White；(5)签名颁发机构=Microsoft/Valve官方。输出：'McAfee代理更新和Steam兼容性检查，正常。建议加入白名单。'"
+      },
+      {
+        "skill_name": "MD5信誉查询",
+        "action_type": "url_render",
+        "template": "https://virustotal.com/gui/search/{file_md5}"
+      }
+    ],
+    "created_at": "2026-03-10T11:22:38.450381"
+  },
+  "sop_hash_5040587768519614246": {
+    "domain_name": "狩猎IOC HASH命中告警处理规则",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "告警类型包含'狩猎IOC HASH'或'沙箱'关键词",
+    "exact_match_signatures": [
+      "狩猎IOC HASH命中日志告警",
+      "sourcetype=sflink:ioa:endpoint",
+      "FileMd5"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_md5",
+        "instruction": "从告警详情中提取FileMd5字段值（32位十六进制字符串）"
+      },
+      {
+        "field_name": "source_ip",
+        "instruction": "提取源IP地址"
+      },
+      {
+        "field_name": "target_host",
+        "instruction": "提取目标主机名"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "SIEM沙箱查询",
+        "action_type": "url_render",
+        "template": "https://siem.sf-express.com/zh-CN/app/TA-siem-tookit/search?q=search%20index%3Dsandbox%20{file_md5}&display.page.search.mode=verbose&dispatch.sample_ratio=1&workload_pool=&earliest=%40mon&latest=now&display.page.search.tab=events&display.general.type=events"
+      },
+      {
+        "skill_name": "IOC关联查询",
+        "action_type": "url_render",
+        "template": "https://siem.sf-express.com/zh-CN/app/TA-siem-tookit/search?q=search%20index%3Dmain%20{file_md5}%20OR%20{source_ip}&earliest=%40mon&latest=now"
+      }
+    ],
+    "created_at": "2026-03-10T11:45:09.093148"
+  },
+  "sop_hash_4274746520820581743": {
+    "domain_name": "ZtsmEnt内部IOA工具误报抑制规则",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "检测到ZtsmEnt相关进程写入文件且IOC来源为MISP的告警",
+    "exact_match_signatures": [
+      "ZtsmEnt",
+      "LoadHotPatchx64.exe",
+      "SFLINK",
+      "sourcetype=sflink:ioa:endpoint",
+      "FileSign=Tencent Technology"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_md5",
+        "instruction": "从告警详情中提取FileMd5字段"
+      },
+      {
+        "field_name": "process_name",
+        "instruction": "从告警详情中提取FileName字段"
+      },
+      {
+        "field_name": "file_path",
+        "instruction": "从告警详情中提取FilePath字段"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "误报确认与抑制",
+        "action_type": "text_constraint",
+        "instruction": "该告警已确认为ZtsmEnt内部IOA工具的正常行为，属于业务误报。建议：1) 将该IOC从高危库中移除或标记为误报；2) 将ZtsmEnt相关进程和文件路径加入安全白名单；3) 调整MISP IOC规则，排除Tencent签名的内部工具。"
+      }
+    ],
+    "created_at": "2026-03-10T11:47:32.210322"
+  },
+  "sop_hash_-3458803120334413641": {
+    "domain_name": "KMS知识管理系统敏感信息收集告警处理",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "告警类型包含'S-T1213'且来源为'kms:operate'",
+    "exact_match_signatures": [
+      "S-T1213",
+      "KMS知识管理系统收集账号密码信息告警",
+      "sourcetype=kms:operate",
+      "T1213"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "page_titles",
+        "instruction": "提取所有告警明细中的页面标题（page_title字段）"
+      },
+      {
+        "field_name": "user_id",
+        "instruction": "提取操作人账号"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "KMS告警摘要输出",
+        "action_type": "text_constraint",
+        "template": "仅输出【告警账号】{user_id} 和【关键页面】列表，页面标题用•符号逐行列出，无需其他信息"
+      }
+    ],
+    "created_at": "2026-03-10T15:56:28.559403"
+  },
+  "sop_hash_9144217604499807360": {
+    "domain_name": "SRC漏洞报告解析",
+    "role_id": "role_cybersecurity_expert",
+    "activation_condition": "告警文本中出现'漏洞详情'或'复现步骤'关键词",
+    "exact_match_signatures": [
+      "漏洞复现",
+      "POST /api",
+      "Host:",
+      "漏洞的参数是"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "vulnerability_domain",
+        "instruction": "从Host字段或URL中提取漏洞所在的域名（如yxk.yshoufa.com）"
+      },
+      {
+        "field_name": "affected_api_endpoint",
+        "instruction": "提取受影响的API接口路径（如/api/address/idCard/getIdCardInfo）"
+      },
+      {
+        "field_name": "vulnerable_parameter",
+        "instruction": "提取存在漏洞的参数名称（如imageUrl）"
+      },
+      {
+        "field_name": "vulnerability_type",
+        "instruction": "识别漏洞类型（如SSRF、SQL注入、XXE等）"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "生成标准化整改建议",
+        "action_type": "text_constraint",
+        "template": "【整改建议】\n1. 参数验证：对{vulnerable_parameter}参数实施白名单验证，禁止外部URL\n2. 输入过滤：实现URL协议限制（仅允许http/https），禁用file://、gopher://等危险协议\n3. 网络隔离：配置WAF规则阻止指向内网IP段的请求\n4. 代码审计：对{affected_api_endpoint}接口进行安全代码审计\n5. 测试验证：在测试环境复现漏洞并验证修复效果"
+      }
+    ],
+    "created_at": "2026-03-10T16:07:28.019225"
+  },
+  "sop_hash_-82395953127649263": {
+    "activation_condition": "用户提供安全告警文本或要求分析告警",
+    "domain_name": "安全告警分析规范",
+    "exact_match_signatures": [
+      "告警",
+      "IOA",
+      "ATT&CK",
+      "风险级别"
+    ],
+    "role_id": "role_cybersecurity_expert",
+    "skills": [
+      {
+        "action_type": "text_constraint",
+        "skill_name": "精简告警分析输出",
+        "template": "【核心行为】\n简洁描述发生了什么（1-2句）\n\n【技术原理】\n解释为什么危险、涉及的API或技术（1-2句）\n\n【建议】\n可直接执行的处理方案（2-3条）"
+      }
+    ],
+    "created_at": "2026-03-11T14:41:53.173330",
+    "verified_urls": []
+  },
+  "sop_hash_-7293702177148171117": {
+    "activation_condition": "当用户提交漏洞报告或需要分析安全漏洞信息时触发",
+    "domain_name": "SRC漏洞报告审核",
+    "exact_match_signatures": [
+      "vulnerability report",
+      "漏洞报告",
+      "SRC audit",
+      "security flaw"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "漏洞域名",
+        "instruction": "从漏洞报告中提取受影响的域名或服务地址"
+      },
+      {
+        "field_name": "漏洞接口",
+        "instruction": "识别存在漏洞的API端点、URL路径和HTTP方法"
+      },
+      {
+        "field_name": "漏洞参数",
+        "instruction": "提取可被利用的参数名称和传递方式"
+      },
+      {
+        "field_name": "影响范围",
+        "instruction": "评估漏洞影响的用户数、业务范围和严重等级"
+      },
+      {
+        "field_name": "修复方案",
+        "instruction": "提供简明的修复建议，包括参数校验、权限控制等方式"
+      }
+    ],
+    "role_id": "role_src_auditor",
+    "skills": [
+      {
+        "action_type": "text_constraint",
+        "skill_name": "漏洞信息提取",
+        "template": "从非结构化漏洞报告中标准化提取：域名、接口、参数、影响范围"
+      },
+      {
+        "action_type": "text_constraint",
+        "skill_name": "权限绕过分析",
+        "template": "分析是否存在权限校验缺陷、返回包路由绕过、参数篡改等问题"
+      },
+      {
+        "action_type": "text_constraint",
+        "skill_name": "修复方案生成",
+        "template": "基于漏洞类型生成可落地的修复建议：接口权限校验、参数白名单、业务逻辑校验"
+      }
+    ],
+    "created_at": "2026-03-11T16:39:22.863043",
+    "verified_urls": []
+  }
+}
