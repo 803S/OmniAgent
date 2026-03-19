@@ -6,7 +6,6 @@ OmniAgent - 万象全域智能管家 (完全体)
 3. 自由对话与工具调用 (Copilot 模式)
 4. 统计监控 + 浏览器自动化 + RAG 知识库
 """
-
 import json
 import os
 import re
@@ -14,34 +13,26 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
-
 # 修复 sys.path：确保用户 site-packages 在前面（解决 RAG 依赖检测问题）
-import sys
 import site
 _user_site = site.getusersitepackages()
 if _user_site and _user_site not in sys.path:
     sys.path.insert(0, _user_site)
-
 # 添加当前目录到 Python 路径（支持导入同级模块）
 sys.path.insert(0, str(Path(__file__).parent))
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from dotenv import load_dotenv
-
 # 加载 .env 文件
 load_dotenv(Path(__file__).parent / ".env")
-
 # ============================================================================
 # 全局配置
 # ============================================================================
 app = Flask(__name__)
 CORS(app)
-
 MEMORY_DIR = Path(__file__).parent / "memory"
 MEMORY_DIR.mkdir(exist_ok=True)
-
 # 优先使用 SQLite，兼容 JSON
 try:
     import database
@@ -52,71 +43,33 @@ except ImportError:
     SOPS_FILE = MEMORY_DIR / "sops.json"
     PERSONAS_FILE = MEMORY_DIR / "personas.json"
     print("[DB] Using JSON storage (fallback)")
-
-# API 安全配置
-API_TOKEN = os.getenv("API_TOKEN", "")  # 本地 API 鉴权 Token
-
-# 支持多模型: anthropic / deepseek / ollama (本地)
+# 支持多模型: deepseek / openai / gemini / xiaomi / internal / local
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "deepseek")  # 默认用 deepseek
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-
 # OpenAI API (GPT-4, GPT-3.5)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
-
 # Google Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-pro")
-
 # 小米大模型
 XIAOMI_API_KEY = os.getenv("XIAOMI_API_KEY", "")
 XIAOMI_BASE_URL = os.getenv("XIAOMI_BASE_URL", "https://api.xiaomi.com/v1")
 XIAOMI_MODEL = os.getenv("XIAOMI_MODEL", "mi-abab6.5-chat")
-
 # 本地模型（Ollama/vLLM）
 LOCAL_MODEL_URL = os.getenv("LOCAL_MODEL_URL", "")
 LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "llama3")
-
 # 公司内部模型（OpenAI 兼容接口）
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 INTERNAL_BASE_URL = os.getenv("INTERNAL_BASE_URL", "")
 INTERNAL_MODEL = os.getenv("INTERNAL_MODEL", "your-model")
-
 print(f"[MODEL] Provider: {MODEL_PROVIDER}")
-
-# Anthropic 客户端
-if ANTHROPIC_API_KEY:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
-else:
-    client = None
-    ANTHROPIC_MODEL = "claude-opus-4-6"
-
 INTERNAL_MODEL_NAME = "claude-opus-4-6"  # 仅用于注释
-
 # ============================================================================
 # API Token 鉴权装饰器
-# ============================================================================
-from functools import wraps
-
-def require_auth(f):
-    """API Token 鉴权装饰器"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if API_TOKEN:
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Bearer "):
-                return jsonify({"error": "Missing or invalid Authorization header"}), 401
-            token = auth_header[7:]  # 去掉 "Bearer " 前缀
-            if token != API_TOKEN:
-                return jsonify({"error": "Invalid API token"}), 401
-        return f(*args, **kwargs)
-    return decorated
-
 # ============================================================================
 # 统一 LLM 调用接口
 def chat_completion(model: str, messages: list, max_tokens: int = 1000, temperature: float = 0.3, system: str = None) -> str:
@@ -166,17 +119,8 @@ def chat_completion(model: str, messages: list, max_tokens: int = 1000, temperat
         resp = requests.post(f"{DEEPSEEK_BASE_URL}/v1/chat/completions", headers=headers, json=payload, timeout=120)
         return resp.json()["choices"][0]["message"]["content"]
     
-    # ===== Anthropic Claude =====
-    if MODEL_PROVIDER == "anthropic" and client:
-        anthropic_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
-        if system:
-            resp = client.messages.create(model=ANTHROPIC_MODEL, max_tokens=max_tokens, temperature=temperature, system=system, messages=anthropic_messages)
-        else:
-            resp = client.messages.create(model=ANTHROPIC_MODEL, max_tokens=max_tokens, temperature=temperature, messages=anthropic_messages)
-        return resp.content[0].text
     
     raise Exception(f"模型 provider '{MODEL_PROVIDER}' 未配置或缺少 API KEY")
-
 # Agent 核心工具库 (Function Calling Schema)
 # ============================================================================
 AGENT_TOOLS = [
@@ -233,7 +177,6 @@ AGENT_TOOLS = [
         }
     }
 ]
-
 # ============================================================================
 # Tool Functions
 # ============================================================================
@@ -244,12 +187,10 @@ def load_json(filepath: Path) -> Dict[str, Any]:
             with open(filepath, "r", encoding="utf-8") as f: return json.load(f)
         except json.JSONDecodeError as e: return {}
     return {}
-
 def save_json(filepath: Path, data: Dict[str, Any]) -> None:
     try:
         with open(filepath, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e: print(f"ERROR writing: {e}")
-
 # ============================================================================
 # SOP / Persona 存储（支持 SQLite 和 JSON 兼容）
 # ============================================================================
@@ -260,7 +201,6 @@ def load_sops() -> Dict[str, Any]:
         # 转换为旧格式兼容
         return {"sops": {sop["id"]: {"name": sop["name"], "description": sop.get("description", ""), "steps": sop.get("steps", []), "trigger": sop.get("trigger", ""), "domain": sop.get("domain", "")} for sop in sops_list}}
     return load_json(SOPS_FILE)
-
 def save_sops(data: Dict[str, Any]) -> None:
     """保存 SOPs，支持 SQLite 和 JSON"""
     if USE_SQLITE and "sops" in data:
@@ -269,7 +209,6 @@ def save_sops(data: Dict[str, Any]) -> None:
             database.save_sop(sop_data)
         return
     save_json(SOPS_FILE, data)
-
 def load_personas() -> Dict[str, Any]:
     """加载 Personas，支持 SQLite 和 JSON"""
     if USE_SQLITE:
@@ -285,7 +224,6 @@ def load_personas() -> Dict[str, Any]:
     if "role_base" not in personas:
         personas["role_base"] = {"name": "Objective Summary Assistant", "system_prompt": "You are a rigorous and objective text analysis assistant."}
     return personas
-
 def save_personas(data: Dict[str, Any]) -> None:
     """保存 Personas，支持 SQLite 和 JSON"""
     if USE_SQLITE:
@@ -294,7 +232,6 @@ def save_personas(data: Dict[str, Any]) -> None:
             database.save_persona(persona_data)
         return
     save_json(PERSONAS_FILE, data)
-
 def extract_json_from_text(text: str) -> dict:
     if not text or not isinstance(text, str): raise ValueError("AI returned empty text")
     try: return json.loads(text)
@@ -305,7 +242,6 @@ def extract_json_from_text(text: str) -> dict:
             try: return json.loads(match.group(1))
             except json.JSONDecodeError: pass
     raise ValueError("AI did not return valid JSON")
-
 def parse_image_base64(b64_str: str) -> dict:
     """Extract image data from frontend, adapt to LLM format"""
     match = re.match(r'data:(image/[a-zA-Z]+);base64,(.*)', b64_str)
@@ -319,7 +255,6 @@ def parse_image_base64(b64_str: str) -> dict:
         "type": "image",
         "source": {"type": "base64", "media_type": media_type, "data": data}
     }
-
 # ============================================================================
 # Core Logic 1: Multi-skill Routing
 # ============================================================================
@@ -333,45 +268,34 @@ def local_keyword_recall(text: str, sops: Dict[str, Any]) -> Dict[str, Any]:
                 candidates[sop_id] = sop_config
                 break
     return candidates
-
 def smart_llm_router(text: str) -> Tuple[List[Dict], Dict]:
     """Architecture upgrade: return array of SOPs"""
     sops = load_sops()
     personas = load_personas()
-
     print(f"[ROUTER] Processing text: {text[:100]}...")
     print(f"[ROUTER] Available SOPs: {list(sops.keys())}")
     print(f"[ROUTER] Available roles: {list(personas.keys())}")
-
     # First: keyword-based matching
     candidate_sops = local_keyword_recall(text, sops)
     print(f"[ROUTER] Keyword matches: {list(candidate_sops.keys())}")
-
     persona_catalog = {k: v.get("name") for k, v in personas.items()}
-
     # Always use smart routing via Claude to select best role and SOP
     sop_descriptions = {
         k: f"[{v.get('domain_name')}] Trigger: {v.get('activation_condition', 'N/A')}"
         for k, v in sops.items()
     }
-
     router_prompt = f"""You are an intelligent request router that selects the best expert and automation rules.
-
 Available Experts (Roles):
 {json.dumps(persona_catalog, ensure_ascii=False, indent=2)}
-
 Available Automation Rules (SOPs):
 {json.dumps(sop_descriptions, ensure_ascii=False, indent=2)}
-
 Based on the user input, decide:
 1. Which expert role is MOST suitable (role_id)
 2. Which automation rules apply (sop_ids array)
-
 IMPORTANT:
 - If no rules match, return empty sop_ids: []
 - Prefer specificity: pick the most directly relevant rules
 - role_id must be from the available roles
-
 Return JSON:
 {{
     "thought_process": "explain your reasoning",
@@ -379,7 +303,6 @@ Return JSON:
     "sop_ids": ["rule_id_1", "rule_id_2"] or []
 }}
 """
-
     try:
         result = chat_completion(
             model=DEEPSEEK_MODEL,
@@ -388,55 +311,44 @@ Return JSON:
         )
         route_decision = extract_json_from_text(result)
         print(f"[ROUTER] Claude decision: {route_decision}")
-
         role_id = route_decision.get("role_id", "role_base")
         sop_ids = route_decision.get("sop_ids", [])
         if not isinstance(sop_ids, list): sop_ids = [sop_ids] if sop_ids else []
-
         # Validate role exists
         if role_id not in personas:
             print(f"[ROUTER] Role {role_id} not found, using role_base")
             role_id = "role_base"
-
         persona_config = personas.get(role_id, personas["role_base"])
         active_sops = [sops[sid] for sid in sop_ids if sid in sops]
-
         domain_names = [s.get('domain_name') for s in active_sops]
         print(f"[ROUTER] Final selection - Role: {persona_config.get('name')} | SOPs: {domain_names if domain_names else 'none'}")
-
         return (active_sops, persona_config)
     except Exception as e:
         print(f"[ROUTER] Router error, fallback: {e}")
         import traceback
         traceback.print_exc()
         return ([], personas["role_base"])
-
 # ============================================================================
 # Core Logic 2: Multi-rule Dynamic Prompt + Vision LLM Execution
 # ============================================================================
 def assemble_system_prompt(active_sops: List[Dict], persona_config: Dict) -> str:
     prompt = f"Role Setting:\n{persona_config.get('system_prompt', '')}\n\n"
-
     if active_sops:
         prompt += "Active multi-skill extraction tasks:\n"
         all_text_constraints = []
-
         for sop in active_sops:
             domain = sop.get("domain_name", "Domain")
             prompt += f"\n--- Rule Source: [{domain}] ---\n"
             for task in sop.get("extraction_tasks", []):
                 prompt += f"- Extract [{task.get('field_name')}]: {task.get('instruction')}\n"
-
             skills = sop.get("skills", [])
             all_text_constraints.extend([s for s in skills if s.get("action_type") == "text_constraint"])
-
         if all_text_constraints:
             prompt += "\nMandatory reply format (must strictly follow):\n"
             for tc in all_text_constraints:
                 prompt += f"- {tc.get('description')}: {tc.get('template')}\n"
     else:
         prompt += "Free-form analysis mode - no specific SOP triggered.\n"
-
     prompt += """
     Absolute System Red Lines:
     1. summary must conclude directly (50 chars max); text_advice must be minimal action instructions, return [] if no investigation needed.
@@ -444,21 +356,16 @@ def assemble_system_prompt(active_sops: List[Dict], persona_config: Dict) -> str
     3. Extracted values must be exact text from original content or screenshot.
     """
     return prompt
-
 def call_claude_analyze(text: str, images_base64: List[str], system_prompt: str) -> str:
     """Architecture upgrade: native multi-modal vision support"""
     print(f"[CLAUDE] call_claude_analyze: text_len={len(text)}, images_count={len(images_base64)}")
-
     content_blocks = []
-
     # Attach image neural
     for idx, b64 in enumerate(images_base64):
         parsed_img = parse_image_base64(b64)
         content_blocks.append(parsed_img)
         print(f"[CLAUDE] Added image {idx}: {str(parsed_img)[:80]}...")
-
     print(f"[CLAUDE] Content blocks after images: {len(content_blocks)}")
-
     # Attach text instruction
     user_message = f"""Analyze the following text and combine with provided screenshots (if any):
         ```text
@@ -470,11 +377,9 @@ def call_claude_analyze(text: str, images_base64: List[str], system_prompt: str)
             "extracted_values": [ {{"field": "field_name", "exact_match_text": "real value from text or screenshot", "color": "red/orange/blue"}} ],
             "text_advice": ["short action instruction1"] // can be empty []
             }}"""
-
     content_blocks.append({"type": "text", "text": user_message})
     print(f"[CLAUDE] Final content_blocks count: {len(content_blocks)}")
     print(f"[CLAUDE] Block types: {[b.get('type') for b in content_blocks]}")
-
     # Debug: print full content structure
     print(f"[CLAUDE] Full content structure:")
     for idx, block in enumerate(content_blocks):
@@ -482,16 +387,13 @@ def call_claude_analyze(text: str, images_base64: List[str], system_prompt: str)
             print(f"  Block {idx}: image - {str(block)[:100]}...")
         else:
             print(f"  Block {idx}: {block.get('type')} - {str(block.get('text', ''))[:100]}...")
-
     result = chat_completion(
         model=DEEPSEEK_MODEL,
         messages=[{"role": "user", "content": content_blocks}],
         max_tokens=3000, temperature=0.1, system=system_prompt
     )
-
     print(f"[LLM] Response received: {result[:200]}...")
     return result
-
 def parse_and_enrich_analysis(claude_response: str, active_sops: List[Dict]) -> Dict:
     try:
         result = extract_json_from_text(claude_response)
@@ -499,15 +401,12 @@ def parse_and_enrich_analysis(claude_response: str, active_sops: List[Dict]) -> 
         clean_text = re.sub(r'json\n?|\n?', '', claude_response).strip()
         result = {"summary": f"Fallback: {clean_text[:300]}...", "extracted_values": [], "text_advice": [], "action_links": []}
         return result
-
     action_links = []
     value_dict = {str(v.get("field", "")): str(v.get("exact_match_text", "")) for v in result.get("extracted_values", [])}
-
     # Architecture upgrade: iterate and aggregate all active SOP action skills
     for sop in active_sops:
         skills = sop.get("skills", [])
         legacy_urls = sop.get("verified_urls", [])
-
         for skill in skills:
             if skill.get("action_type") == "url_render":
                 url = skill.get("template", "")
@@ -515,41 +414,33 @@ def parse_and_enrich_analysis(claude_response: str, active_sops: List[Dict]) -> 
                     if val: url = url.replace(f"{{{field}}}", val)
                 if "{" not in url and url.startswith("http"):
                     action_links.append({"title": f"[{sop.get('domain_name')}] {skill.get('skill_name')}", "url": url})
-
         for u in legacy_urls:
             url = u.get("url_template", "")
             for field, val in value_dict.items():
                 if val: url = url.replace(f"{{{field}}}", val)
             if "{" not in url and url.startswith("http"):
                 action_links.append({"title": u.get("title", "action_link"), "url": url})
-
     result["action_links"] = action_links
     return result
-
 # ============================================================================
 # API Endpoints
 # ============================================================================
-@require_auth
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     text = request.json.get("text", "").strip()
     images = request.json.get("images", [])
-
     print(f"[ANALYZE] Received request: text_len={len(text)}, images_count={len(images)}")
     if images:
         for idx, img in enumerate(images):
             print(f"[ANALYZE] Image {idx}: {str(img)[:50]}... ({len(img)} bytes)")
-
     if not text and not images:
         return jsonify({"error": "text and images cannot both be empty"}), 400
-
     try:
         active_sops, persona_config = smart_llm_router(text)
         system_prompt = assemble_system_prompt(active_sops, persona_config)
         print(f"[ANALYZE] Calling Claude with {len(images)} images")
         claude_response = call_claude_analyze(text, images, system_prompt)
         result = parse_and_enrich_analysis(claude_response, active_sops)
-
         domain_names = [s.get("domain_name") for s in active_sops]
         result["matched_domain"] = " + ".join(domain_names) if domain_names else "none (expert judgment)"
         result["matched_persona"] = persona_config.get("name")
@@ -560,8 +451,6 @@ def analyze():
         traceback.print_exc()
         print(f"[ANALYZE] Error: {e}")
         return jsonify({"error": str(e)}), 500
-
-@require_auth
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """Architecture upgrade: free conversation brain with multi-modal and tool calling"""
@@ -570,30 +459,22 @@ def chat():
     messages = data.get("messages", [])
     if not messages and data.get("message"):
         messages = [{"role": "user", "content": data.get("message")}]
-
     personas = load_personas()
     existing_roles = json.dumps({k: v["name"] for k, v in personas.items()}, ensure_ascii=False)
-
     system_prompt = f"""You are an omniscient Personal Agent OS. Currently in Copilot conversation mode.
         You can naturally chat with users, help analyze webpage content, review vulnerability screenshots, summarize articles.
-
         Available Tools:
         1. create_or_update_sop: Call when user explicitly requests "create rule", "establish SOP", or "handle like this in future"
         2. create_or_update_persona: Call when user explicitly requests "create new role", "add xx expert", or "establish xx analyst"
-
         Tool Usage Rules:
         NEVER call tools unless user explicitly says the keywords above! Use natural language replies instead!
-
         Role Creation Guide:
         If user requests role creation:
         1. Generate suitable role_id (English, e.g., role_security_expert, role_code_reviewer)
         2. Set role_name (Chinese display name, e.g., Security Expert, Code Reviewer)
         3. Write system_prompt (detailed definition of role function, thinking, workflow)
-
         Current Role Library: {existing_roles}
-
         Strong role binding: When encountering new domain tasks, prioritize reusing existing roles."""
-
     try:
         # 统一调用 - 暂时移除 tools 支持（DeepSeek 需额外配置）
         result = chat_completion(
@@ -602,16 +483,13 @@ def chat():
             max_tokens=2500, temperature=0.4, system=system_prompt
         )
         response_data = {"reply": "", "sop_created": False, "sop_domain": "", "is_tool_call": False, "raw_response": result}
-
         # 简单解析：检查是否包含 SOP 创建意图
         if "create_or_update_sop" in result or "domain_name" in result:
             response_data["is_tool_call"] = True
             response_data["reply"] = result
         else:
             response_data["reply"] = result
-
         return response_data
-
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -620,16 +498,13 @@ def chat():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 # ============================================================================
 # 新模块集成: Stats / Browser / RAG
 # ============================================================================
-
 # 延迟导入新模块（支持可选安装）
 stats_module = None
 browser_module = None
 rag_module = None
-
 def _init_modules():
     """初始化各模块"""
     global stats_module, browser_module, rag_module
@@ -676,12 +551,9 @@ def _init_modules():
             'list_documents': lambda *a, **kw: [],
             'delete_document': lambda *a, **kw: {"error": "RAG not available"}
         })()
-
 # ============================================================================
 # Patterns API - SOP/Pattern 记录
 # ============================================================================
-
-@require_auth
 @app.route("/api/patterns/record", methods=["POST"])
 def record_pattern():
     """记录用户操作模式到 SOP"""
@@ -726,15 +598,11 @@ def record_pattern():
         return jsonify({"status": "ok", "persona_id": persona_id}), 200
     
     return jsonify({"error": "invalid pattern_type"}), 400
-
 # 立即初始化模块
 _init_modules()
-
 # ============================================================================
 # Stats API - 监控统计
 # ============================================================================
-
-@require_auth
 @app.route("/api/stats", methods=["GET"])
 def get_stats():
     """获取统计摘要"""
@@ -746,8 +614,6 @@ def get_stats():
         except Exception as e:
             return jsonify({"error": f"Stats error: {e}"}), 500
     return jsonify({"error": "Stats module not available"}), 500
-
-@require_auth
 @app.route("/api/stats/reset", methods=["POST"])
 def reset_stats_api():
     """重置统计数据"""
@@ -757,12 +623,9 @@ def reset_stats_api():
         except Exception as e:
             return jsonify({"error": f"Reset error: {e}"}), 500
     return jsonify({"error": "Stats module not available"}), 500
-
 # ============================================================================
 # Browser API - 浏览器自动化
 # ============================================================================
-
-@require_auth
 @app.route("/api/browser/create", methods=["POST"])
 def browser_create():
     """创建浏览器页面"""
@@ -780,9 +643,6 @@ def browser_create():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/close", methods=["POST"])
 def browser_close(browser_id):
     """关闭浏览器页面"""
@@ -794,9 +654,6 @@ def browser_close(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/navigate", methods=["POST"])
 def browser_navigate(browser_id):
     """导航到 URL"""
@@ -814,9 +671,6 @@ def browser_navigate(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/action", methods=["POST"])
 def browser_action(browser_id):
     """执行浏览器操作"""
@@ -839,9 +693,6 @@ def browser_action(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/content", methods=["GET"])
 def browser_content(browser_id):
     """获取页面内容"""
@@ -853,9 +704,6 @@ def browser_content(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/info", methods=["GET"])
 def browser_info(browser_id):
     """获取页面信息"""
@@ -867,9 +715,6 @@ def browser_info(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/operations", methods=["GET"])
 def browser_operations_list():
     """列出所有操作序列"""
@@ -881,9 +726,6 @@ def browser_operations_list():
         return jsonify({"operations": result}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/operations", methods=["POST"])
 def browser_operations_save():
     """保存操作序列"""
@@ -902,9 +744,6 @@ def browser_operations_save():
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@require_auth
 @app.route("/api/browser/<browser_id>/play", methods=["POST"])
 def browser_operations_play(browser_id):
     """执行操作序列"""
@@ -922,12 +761,9 @@ def browser_operations_play(browser_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 # ============================================================================
 # RAG API - 知识库
 # ============================================================================
-
-@require_auth
 @app.route("/api/rag/add", methods=["POST"])
 def rag_add():
     """添加知识（文件/URL）"""
@@ -948,8 +784,6 @@ def rag_add():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-@require_auth
 @app.route("/api/rag/search", methods=["GET"])
 def rag_search():
     """检索知识"""
@@ -967,8 +801,6 @@ def rag_search():
         return jsonify({"query": query, "results": results}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@require_auth
 @app.route("/api/rag/stats", methods=["GET"])
 def rag_stats():
     """获取知识库统计"""
@@ -980,8 +812,6 @@ def rag_stats():
         return jsonify(stats), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@require_auth
 @app.route("/api/rag/documents", methods=["GET"])
 def rag_documents():
     """列出已吞噬的文档"""
@@ -993,8 +823,6 @@ def rag_documents():
         return jsonify({"documents": docs}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@require_auth
 @app.route("/api/rag/documents/<doc_id>", methods=["DELETE"])
 def rag_delete(doc_id):
     """删除文档"""
@@ -1006,11 +834,9 @@ def rag_delete(doc_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
 # ============================================================================
 # 健康检查
 # ============================================================================
-
 @app.route("/health", methods=["GET"])
 def health():
     """健康检查"""
@@ -1024,19 +850,14 @@ def health():
         }
     }
     return jsonify(status), 200
-
 # ============================================================================
 # 启动
 # ============================================================================
-
 # 请求超时中间件
 import signal
-
 def timeout_handler(signum, frame):
     raise TimeoutError("Request timeout")
-
 # Note: signal timeout 已在 Python 3.6+ nohup 环境失效，改用线程超时
-
 if __name__ == "__main__":
     print("=" * 50)
     print("OmniAgent Server (Enhanced Version)")
