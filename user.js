@@ -2187,6 +2187,17 @@
     // ============== 分析完成后获取本次统计 ==============
     let lastStats = null;
 
+    function normalizeStatsPayload(stats) {
+        const overall = stats?.overall || {};
+        const topSops = Array.isArray(stats?.top_sops) ? stats.top_sops : [];
+        return {
+            totalTokens: overall.total_tokens || stats?.total_tokens || 0,
+            totalCost: overall.total_cost_usd || stats?.total_cost || 0,
+            totalRequests: overall.total_requests || stats?.total_requests || 0,
+            sopInvocations: topSops.reduce((sum, item) => sum + (item?.count || 0), 0)
+        };
+    }
+
     function fetchStatsForAnalysis(analysisResult) {
         GM_xmlhttpRequest({
             method: 'GET',
@@ -2195,11 +2206,11 @@
                 try {
                     const stats = JSON.parse(r.responseText);
                     lastStats = stats;
-                    // 在分析结果中显示本次消耗
+                    const normalized = normalizeStatsPayload(stats);
                     if (state.currentAnalysis) {
                         state.currentAnalysis.analysis_stats = {
-                            tokens: stats.last_tokens || stats.total_tokens,
-                            cost: stats.last_cost || stats.total_cost
+                            tokens: normalized.totalTokens,
+                            cost: normalized.totalCost
                         };
                     }
                 } catch (e) {
@@ -2220,15 +2231,16 @@
             onload: (r) => {
                 try {
                     const stats = JSON.parse(r.responseText);
+                    const normalized = normalizeStatsPayload(stats);
                     let html = `
                         <div style="padding: 12px;">
                             <div style="font-weight: bold; margin-bottom: 12px; font-size: 14px;">📊 使用统计</div>
                             <div style="background: #f8fafc; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                    <div><span style="color: #626F86;">Token:</span> <strong>${stats.total_tokens || 0}</strong></div>
-                                    <div><span style="color: #626F86;">成本:</span> <strong>$${stats.total_cost?.toFixed(4) || '0.0000'}</strong></div>
-                                    <div><span style="color: #626F86;">SOP调用:</span> <strong>${stats.sop_invocations || 0}</strong></div>
-                                    <div><span style="color: #626F86;">请求:</span> <strong>${stats.total_requests || 0}</strong></div>
+                                    <div><span style="color: #626F86;">Token:</span> <strong>${normalized.totalTokens}</strong></div>
+                                    <div><span style="color: #626F86;">成本:</span> <strong>$${normalized.totalCost.toFixed(4)}</strong></div>
+                                    <div><span style="color: #626F86;">SOP调用:</span> <strong>${normalized.sopInvocations}</strong></div>
+                                    <div><span style="color: #626F86;">请求:</span> <strong>${normalized.totalRequests}</strong></div>
                                 </div>
                             </div>
                             <button id="stats-reset" class="soc-btn" style="width: 100%; background: #EF4444; color: white;">🗑️ 重置统计</button>
@@ -2299,9 +2311,14 @@
                 onload: (r) => {
                     try {
                         const result = JSON.parse(r.responseText);
-                        if (result.page_id) {
-                            browserPages.push(result.page_id);
-                            notify('✓ 页面已创建: ' + result.page_id.substring(0, 8));
+                        const pageId = result.page_id || result.browser_id;
+                        if (result.error) {
+                            notify('❌ ' + result.error, 'error');
+                            return;
+                        }
+                        if (pageId) {
+                            browserPages.push(pageId);
+                            notify('✓ 页面已创建: ' + pageId.substring(0, 8));
                             updateBrowserPagesList();
                         }
                     } catch (e) {
@@ -2331,7 +2348,11 @@
                 onload: (r) => {
                     try {
                         const result = JSON.parse(r.responseText);
-                        if (result.success) {
+                        if (result.error) {
+                            notify('❌ ' + result.error, 'error');
+                            return;
+                        }
+                        if (result.success || result.status === 'success') {
                             notify('✓ 已导航到: ' + url);
                         }
                     } catch (e) {
@@ -2365,6 +2386,10 @@
                 onload: (r) => {
                     try {
                         const result = JSON.parse(r.responseText);
+                        if (result.error) {
+                            notify('❌ ' + result.error, 'error');
+                            return;
+                        }
                         const previewEl = content.querySelector('#browser-content-preview');
                         previewEl.style.display = 'block';
                         previewEl.textContent = result.content?.substring(0, 500) || '无内容';
@@ -2445,6 +2470,10 @@
                 onload: (r) => {
                     try {
                         const result = JSON.parse(r.responseText);
+                        if (result.error) {
+                            notify('❌ ' + result.error, 'error');
+                            return;
+                        }
                         if (result.doc_id) {
                             notify('✓ 文档已添加');
                             content.querySelector('#rag-text').value = '';
@@ -2468,18 +2497,26 @@
                 url: API_BASE + '/api/rag/search?q=' + encodeURIComponent(query),
                 onload: (r) => {
                     try {
-                        const results = JSON.parse(r.responseText);
+                        const payload = JSON.parse(r.responseText);
+                        const results = Array.isArray(payload) ? payload : (payload.results || []);
                         const resultsEl = content.querySelector('#rag-results');
+                        if (payload.error) {
+                            resultsEl.innerHTML = '❌ ' + payload.error;
+                            return;
+                        }
                         if (results.length === 0) {
                             resultsEl.innerHTML = '未找到相关结果';
                         } else {
                             let html = '<strong>搜索结果:</strong><br>';
                             results.slice(0, 5).forEach((r, i) => {
-                                const text = r.text?.substring(0, 80) || '';
+                                const chunkText = r.content || r.text || '';
+                                const sourceLabel = r.doc_name || r.source || '知识片段';
+                                const text = chunkText.substring(0, 80) || '';
                                 html += `
                                     <div style="background: #f8fafc; padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+                                        <div style="font-size: 11px; color: #111827; font-weight: 600; margin-bottom: 4px;">${sourceLabel}</div>
                                         <div style="font-size: 11px; color: #626F86;">${text}...</div>
-                                        <button class="rag-to-chat-btn" data-index="${i}" data-text="${encodeURIComponent(r.text || '')}"
+                                        <button class="rag-to-chat-btn" data-index="${i}" data-text="${encodeURIComponent(chunkText)}"
                                             style="background: ${COLORS.primary}; color: white; border: none; border-radius: 3px; padding: 4px 8px; font-size: 11px; margin-top: 4px; cursor: pointer;">
                                             📤 发送到对话
                                         </button>

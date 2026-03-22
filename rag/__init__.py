@@ -466,53 +466,141 @@ class AutoIngest:
         return sorted(docs, key=lambda x: x.get("embedded_at", ""), reverse=True)
 
 
+class SimpleKnowledgeBase:
+    """轻量级无向量依赖的知识库 fallback，保证用户可直接测试 add/search 流程。"""
+
+    def __init__(self):
+        self.document_dir = DOCUMENT_DIR
+        self.document_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_text(self, source: str) -> str:
+        if source.startswith("http://") or source.startswith("https://"):
+            import requests
+            resp = requests.get(source, timeout=30)
+            resp.raise_for_status()
+            return resp.text
+        with open(source, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+
+    def _iter_docs(self):
+        for f in self.document_dir.glob('*.json'):
+            try:
+                yield json.loads(f.read_text(encoding='utf-8'))
+            except Exception:
+                continue
+
+    def add_knowledge(self, source: str, metadata: Dict = None) -> Dict:
+        content = self._load_text(source)
+        chunks = [content[i:i + DEFAULT_CHUNK_SIZE] for i in range(0, len(content), DEFAULT_CHUNK_SIZE)] or [content]
+        doc_id = hashlib.md5((source + datetime.now().isoformat()).encode()).hexdigest()[:12]
+        payload = {
+            'id': doc_id,
+            'name': Path(source).name if not source.startswith('http') else urlparse(source).netloc,
+            'doc_type': DocumentType.URL.value if source.startswith('http') else Path(source).suffix.lstrip('.').lower() or 'txt',
+            'source': source,
+            'content': content[:5000],
+            'chunks': chunks,
+            'metadata': metadata or {},
+            'embedded_at': datetime.now().isoformat(),
+            'chunk_count': len(chunks),
+            'mode': 'simple'
+        }
+        (self.document_dir / f'{doc_id}.json').write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {'status': 'ok', 'doc_id': doc_id, 'doc_name': payload['name'], 'chunk_count': len(chunks), 'mode': 'simple'}
+
+    def search(self, query: str, top_k: int = 5) -> List[RetrievalResult]:
+        tokens = [t.lower() for t in query.split() if t.strip()]
+        results = []
+        for doc in self._iter_docs():
+            for chunk in doc.get('chunks', []):
+                haystack = chunk.lower()
+                score = sum(haystack.count(token) for token in tokens) if tokens else 0
+                if score > 0 or query.lower() in haystack:
+                    similarity = round(min(1.0, 0.2 + score * 0.15), 4)
+                    results.append(RetrievalResult(
+                        chunk_id=doc.get('id', ''),
+                        doc_name=doc.get('name', ''),
+                        content=chunk,
+                        source=doc.get('source', ''),
+                        score=similarity,
+                        metadata=doc.get('metadata', {}),
+                    ))
+        results.sort(key=lambda item: item.score, reverse=True)
+        return results[:top_k]
+
+    def get_stats(self) -> Dict:
+        docs = list(self._iter_docs())
+        return {
+            'vector_db': {'mode': 'simple', 'total_chunks': sum(doc.get('chunk_count', 0) for doc in docs)},
+            'documents': {'total': len(docs), 'list': [
+                {'id': doc.get('id'), 'name': doc.get('name'), 'type': doc.get('doc_type'), 'source': doc.get('source'), 'chunk_count': doc.get('chunk_count'), 'embedded_at': doc.get('embedded_at')}
+                for doc in docs[:10]
+            ]}
+        }
+
+    def delete_document(self, doc_id: str) -> Dict:
+        meta_file = self.document_dir / f'{doc_id}.json'
+        if meta_file.exists():
+            meta_file.unlink()
+            return {'status': 'ok', 'deleted': 1}
+        return {'status': 'ok', 'deleted': 0}
+
+    def list_documents(self) -> List[Dict]:
+        docs = []
+        for doc in self._iter_docs():
+            docs.append({'id': doc.get('id'), 'name': doc.get('name'), 'type': doc.get('doc_type'), 'source': doc.get('source'), 'chunk_count': doc.get('chunk_count'), 'embedded_at': doc.get('embedded_at')})
+        return sorted(docs, key=lambda x: x.get('embedded_at', ''), reverse=True)
+
+
 class KnowledgeBase:
     """知识库统一入口"""
-    
+
     def __init__(
         self,
         embedding_model: str = DEFAULT_EMBEDDING_MODEL,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         chunk_overlap: int = DEFAULT_CHUNK_OVERLAP
     ):
-        self.processor = DocumentProcessor(embedding_model, chunk_size, chunk_overlap)
-        self.vector_store = VectorStore(embedding_model=embedding_model)
-        self.auto_ingest = AutoIngest(self.vector_store, self.processor)
-    
+        self.simple_mode = not (LangChainAvailable and ChromaAvailable)
+        if self.simple_mode:
+            self.simple_kb = SimpleKnowledgeBase()
+        else:
+            self.processor = DocumentProcessor(embedding_model, chunk_size, chunk_overlap)
+            self.vector_store = VectorStore(embedding_model=embedding_model)
+            self.auto_ingest = AutoIngest(self.vector_store, self.processor)
+
     def add_knowledge(self, source: str, metadata: Dict = None) -> Dict:
-        """添加知识（文件/URL）"""
+        if self.simple_mode:
+            return self.simple_kb.add_knowledge(source, metadata)
         if source.startswith("http://") or source.startswith("https://"):
             return self.auto_ingest.ingest_url(source, metadata)
-        else:
-            return self.auto_ingest.ingest_file(source, metadata)
-    
+        return self.auto_ingest.ingest_file(source, metadata)
+
     def search(self, query: str, top_k: int = 5) -> List[RetrievalResult]:
-        """检索知识"""
+        if self.simple_mode:
+            return self.simple_kb.search(query, top_k)
         return self.vector_store.search(query, top_k)
-    
+
     def get_stats(self) -> Dict:
-        """获取知识库统计"""
+        if self.simple_mode:
+            return self.simple_kb.get_stats()
         vs_stats = self.vector_store.get_stats()
         docs = self.auto_ingest.list_documents()
-        
-        return {
-            "vector_db": vs_stats,
-            "documents": {
-                "total": len(docs),
-                "list": docs[:10]
-            }
-        }
-    
+        return {'vector_db': vs_stats, 'documents': {'total': len(docs), 'list': docs[:10]}}
+
     def delete_document(self, doc_id: str) -> Dict:
-        """删除文档"""
+        if self.simple_mode:
+            return self.simple_kb.delete_document(doc_id)
         vs_result = self.vector_store.delete_by_doc_id(doc_id)
-        
-        # 删除元数据文件
-        meta_file = self.document_dir / f"{doc_id}.json"
+        meta_file = self.auto_ingest.document_dir / f"{doc_id}.json"
         if meta_file.exists():
             meta_file.unlink()
-        
         return vs_result
+
+    def list_documents(self) -> List[Dict]:
+        if self.simple_mode:
+            return self.simple_kb.list_documents()
+        return self.auto_ingest.list_documents()
 
 
 # ============================================================================
@@ -523,7 +611,6 @@ _knowledge_base: Optional[KnowledgeBase] = None
 _knowledge_base_lock = threading.Lock()
 
 def get_knowledge_base() -> KnowledgeBase:
-    """获取知识库单例"""
     global _knowledge_base
     if _knowledge_base is None:
         with _knowledge_base_lock:
@@ -532,54 +619,30 @@ def get_knowledge_base() -> KnowledgeBase:
     return _knowledge_base
 
 
-# ============================================================================
-# 公共 API
-# ============================================================================
-
 def add_knowledge(source: str, metadata: Dict = None) -> Dict:
-    """添加知识"""
     return get_knowledge_base().add_knowledge(source, metadata)
 
 def search_knowledge(query: str, top_k: int = 5) -> List[Dict]:
-    """检索知识"""
     results = get_knowledge_base().search(query, top_k)
-    return [
-        {
-            "doc_name": r.doc_name,
-            "content": r.content,
-            "source": r.source,
-            "score": r.score,
-            "metadata": r.metadata
-        }
-        for r in results
-    ]
+    return [{
+        'doc_name': r.doc_name,
+        'content': r.content,
+        'source': r.source,
+        'score': r.score,
+        'metadata': r.metadata
+    } for r in results]
 
 def get_knowledge_stats() -> Dict:
-    """获取知识库统计"""
     return get_knowledge_base().get_stats()
 
 def list_documents() -> List[Dict]:
-    """列出文档"""
-    return get_knowledge_base().auto_ingest.list_documents()
+    return get_knowledge_base().list_documents()
 
 def delete_document(doc_id: str) -> Dict:
-    """删除文档"""
     return get_knowledge_base().delete_document(doc_id)
 
 
 __all__ = [
-    "KnowledgeBase",
-    "DocumentProcessor",
-    "VectorStore",
-    "AutoIngest",
-    "DocumentType",
-    "KnowledgeDocument",
-    "KnowledgeChunk",
-    "RetrievalResult",
-    # Functions
-    "add_knowledge",
-    "search_knowledge",
-    "get_knowledge_stats",
-    "list_documents",
-    "delete_document"
+    'KnowledgeBase', 'DocumentProcessor', 'VectorStore', 'AutoIngest', 'DocumentType', 'KnowledgeDocument', 'KnowledgeChunk', 'RetrievalResult',
+    'add_knowledge', 'search_knowledge', 'get_knowledge_stats', 'list_documents', 'delete_document'
 ]

@@ -1,57 +1,63 @@
 """
 OmniAgent Browser 模块
-功能：浏览器自动化控制（基于 Selenium）
+功能：浏览器自动化控制。
+- 优先使用 Selenium 真浏览器
+- 若未安装 Selenium，则退化为 requests 驱动的轻量浏览模式，至少保证 create / navigate / content / info 可用于用户测试
 """
 
-import os
 import json
+import re
 import time
 import uuid
 import threading
-from typing import Dict, List, Optional, Any
+from html import unescape
 from pathlib import Path
+from typing import Any, Dict, List
 
-# Selenium 相关
+import requests
+
 SeleniumAvailable = False
 try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.common.keys import Keys
     from selenium.webdriver.chrome.options import Options as ChromeOptions
     from selenium.webdriver.firefox.options import Options as FirefoxOptions
     SeleniumAvailable = True
 except ImportError as e:
-    print(f"[WARN] Selenium not available: {e}")
+    print(f"[WARN] Selenium not available, using lightweight browser fallback: {e}")
 
-# 全局浏览器实例管理
 _browsers: Dict[str, 'BrowserInstance'] = {}
 _browsers_lock = threading.Lock()
-
-# 操作序列存储
 OPERATIONS_DIR = Path(__file__).parent / "memory" / "browser_operations"
 OPERATIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _extract_title(html: str) -> str:
+    match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+    return unescape(match.group(1).strip()) if match else ""
+
+
 class BrowserInstance:
-    """浏览器实例"""
-    
     def __init__(self, browser_type: str = "chrome", headless: bool = True):
         self.id = str(uuid.uuid4())
         self.browser_type = browser_type
+        self.headless = headless
         self.driver = None
-        self._init_driver(headless)
-    
+        self.mode = "selenium" if SeleniumAvailable else "http"
+        self.session = requests.Session()
+        self.current_url = ""
+        self.current_title = ""
+        self.page_source = ""
+        self.history: List[str] = []
+        self.history_index = -1
+        if SeleniumAvailable:
+            self._init_driver(headless)
+
     def _init_driver(self, headless: bool = True):
-        """初始化 WebDriver"""
-        if not SeleniumAvailable:
-            raise RuntimeError("Selenium not available")
-        
         if self.browser_type == "chrome":
             options = ChromeOptions()
             if headless:
-                options.add_argument("--headless")
+                options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
@@ -64,112 +70,115 @@ class BrowserInstance:
             self.driver = webdriver.Firefox(options=options)
         else:
             raise ValueError(f"Unsupported browser type: {self.browser_type}")
-        
         self.driver.implicitly_wait(10)
-    
+
+    def _push_history(self, url: str):
+        if self.history_index < len(self.history) - 1:
+            self.history = self.history[: self.history_index + 1]
+        self.history.append(url)
+        self.history_index = len(self.history) - 1
+
     def navigate(self, url: str) -> Dict[str, Any]:
-        """导航到 URL"""
-        self.driver.get(url)
-        return {
-            "status": "success",
-            "url": self.driver.current_url,
-            "title": self.driver.title
-        }
-    
+        if self.driver:
+            self.driver.get(url)
+            self.current_url = self.driver.current_url
+            self.current_title = self.driver.title
+            self.page_source = self.driver.page_source
+            self._push_history(self.current_url)
+            return {"status": "success", "url": self.current_url, "title": self.current_title, "mode": self.mode}
+
+        resp = self.session.get(url, timeout=30)
+        resp.raise_for_status()
+        resp.encoding = resp.encoding or resp.apparent_encoding or 'utf-8'
+        self.current_url = resp.url
+        self.page_source = resp.text
+        self.current_title = _extract_title(self.page_source)
+        self._push_history(self.current_url)
+        return {"status": "success", "url": self.current_url, "title": self.current_title, "mode": self.mode}
+
     def close(self):
-        """关闭浏览器"""
         if self.driver:
             self.driver.quit()
             self.driver = None
-    
+        self.session.close()
+
     def get_content(self) -> str:
-        """获取页面内容"""
-        return self.driver.page_source
-    
+        return self.driver.page_source if self.driver else self.page_source
+
     def get_info(self) -> Dict[str, Any]:
-        """获取页面信息"""
+        if self.driver:
+            return {
+                "url": self.driver.current_url,
+                "title": self.driver.title,
+                "window_handles": len(self.driver.window_handles),
+                "mode": self.mode,
+            }
         return {
-            "url": self.driver.current_url,
-            "title": self.driver.title,
-            "window_handles": len(self.driver.window_handles)
+            "url": self.current_url,
+            "title": self.current_title,
+            "window_handles": 1,
+            "mode": self.mode,
         }
-    
-    def execute_action(self, action: str, selector: str = None, value: str = None, 
-                       index: int = 0) -> Dict[str, Any]:
-        """执行浏览器操作
-        
-        Args:
-            action: 操作类型 (click, input, select, scroll, screenshot, wait)
-            selector: CSS 选择器
-            value: 输入值或选项
-            index: 元素索引
-        """
-        if action == "click":
-            if selector:
-                elem = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                if elem and index < len(elem):
-                    elem[index].click()
-            return {"status": "success", "action": "click"}
-        
-        elif action == "input":
-            if selector and value is not None:
-                elem = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                if elem and index < len(elem):
-                    elem[index].clear()
-                    elem[index].send_keys(value)
-            return {"status": "success", "action": "input", "value": value}
-        
-        elif action == "select":
-            # <select> 元素处理
-            if selector and value is not None:
-                from selenium.webdriver.support.ui import Select
-                elem = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                if elem and index < len(elem):
-                    Select(elem[index]).select_by_value(value)
-            return {"status": "success", "action": "select"}
-        
-        elif action == "scroll":
-            if selector:
-                elem = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                if elem and index < len(elem):
-                    self.driver.execute_script("arguments[0].scrollIntoView();", elem[index])
-            else:
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            return {"status": "success", "action": "scroll"}
-        
-        elif action == "screenshot":
-            # 返回 base64 编码的截图
-            screenshot = self.driver.get_screenshot_as_base64()
-            return {"status": "success", "action": "screenshot", "data": screenshot}
-        
-        elif action == "wait":
+
+    def _navigate_history(self, step: int) -> Dict[str, Any]:
+        if not self.history:
+            return {"status": "error", "message": "No history"}
+        next_index = self.history_index + step
+        if next_index < 0 or next_index >= len(self.history):
+            return {"status": "error", "message": "History boundary reached"}
+        self.history_index = next_index
+        return self.navigate(self.history[self.history_index])
+
+    def execute_action(self, action: str, selector: str = None, value: str = None, index: int = 0) -> Dict[str, Any]:
+        if self.driver:
+            if action == "click":
+                elems = self.driver.find_elements(By.CSS_SELECTOR, selector) if selector else []
+                if elems and index < len(elems):
+                    elems[index].click()
+                    return {"status": "success", "action": "click"}
+                return {"status": "error", "message": "Element not found"}
+            if action == "input":
+                elems = self.driver.find_elements(By.CSS_SELECTOR, selector) if selector else []
+                if elems and index < len(elems):
+                    elems[index].clear()
+                    elems[index].send_keys(value or "")
+                    return {"status": "success", "action": "input", "value": value}
+                return {"status": "error", "message": "Element not found"}
+            if action == "scroll":
+                if selector:
+                    elems = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elems and index < len(elems):
+                        self.driver.execute_script("arguments[0].scrollIntoView();", elems[index])
+                else:
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                return {"status": "success", "action": "scroll"}
+            if action == "screenshot":
+                return {"status": "success", "action": "screenshot", "data": self.driver.get_screenshot_as_base64()}
+            if action == "refresh":
+                self.driver.refresh()
+                return {"status": "success", "action": "refresh"}
+
+        if action == "goto":
+            return self.navigate(value)
+        if action == "refresh":
+            if not self.current_url:
+                return {"status": "error", "message": "No page loaded"}
+            return self.navigate(self.current_url)
+        if action == "back":
+            return self._navigate_history(-1)
+        if action == "forward":
+            return self._navigate_history(1)
+        if action == "wait":
             time.sleep(float(value or 1))
             return {"status": "success", "action": "wait", "duration": value}
-        
-        elif action == "goto":
-            return self.navigate(value)
-        
-        elif action == "refresh":
-            self.driver.refresh()
-            return {"status": "success", "action": "refresh"}
-        
-        elif action == "back":
-            self.driver.back()
-            return {"status": "success", "action": "back"}
-        
-        elif action == "forward":
-            self.driver.forward()
-            return {"status": "success", "action": "forward"}
-        
-        else:
-            return {"status": "error", "message": f"Unknown action: {action}"}
+        if action == "screenshot":
+            return {"status": "error", "message": "Screenshot requires Selenium browser mode"}
+        if action in {"click", "input", "select", "scroll"}:
+            return {"status": "error", "message": f"Action '{action}' requires Selenium browser mode"}
+        return {"status": "error", "message": f"Unknown action: {action}"}
 
 
 def create_browser(browser_type: str = "chrome", headless: bool = True) -> Dict[str, Any]:
-    """创建浏览器实例"""
-    if not SeleniumAvailable:
-        return {"status": "error", "message": "Selenium not available"}
-    
     try:
         instance = BrowserInstance(browser_type, headless)
         with _browsers_lock:
@@ -178,25 +187,23 @@ def create_browser(browser_type: str = "chrome", headless: bool = True) -> Dict[
             "status": "success",
             "browser_id": instance.id,
             "browser_type": browser_type,
-            "headless": headless
+            "headless": headless,
+            "mode": instance.mode,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 def close_browser(browser_id: str) -> Dict[str, Any]:
-    """关闭浏览器实例"""
     with _browsers_lock:
-        if browser_id in _browsers:
-            instance = _browsers[browser_id]
-            instance.close()
-            del _browsers[browser_id]
-            return {"status": "success"}
-    return {"status": "error", "message": "Browser not found"}
+        instance = _browsers.pop(browser_id, None)
+    if not instance:
+        return {"status": "error", "message": "Browser not found"}
+    instance.close()
+    return {"status": "success"}
 
 
 def navigate(browser_id: str, url: str) -> Dict[str, Any]:
-    """导航到 URL"""
     with _browsers_lock:
         instance = _browsers.get(browser_id)
     if not instance:
@@ -204,9 +211,7 @@ def navigate(browser_id: str, url: str) -> Dict[str, Any]:
     return instance.navigate(url)
 
 
-def execute_action(browser_id: str, action: str, selector: str = None, 
-                   value: str = None, index: int = 0) -> Dict[str, Any]:
-    """执行浏览器操作"""
+def execute_action(browser_id: str, action: str, selector: str = None, value: str = None, index: int = 0) -> Dict[str, Any]:
     with _browsers_lock:
         instance = _browsers.get(browser_id)
     if not instance:
@@ -215,16 +220,14 @@ def execute_action(browser_id: str, action: str, selector: str = None,
 
 
 def get_content(browser_id: str) -> Dict[str, Any]:
-    """获取页面内容"""
     with _browsers_lock:
         instance = _browsers.get(browser_id)
     if not instance:
         return {"status": "error", "message": "Browser not found"}
-    return {"status": "success", "content": instance.get_content()}
+    return {"status": "success", "content": instance.get_content(), "mode": instance.mode}
 
 
 def get_info(browser_id: str) -> Dict[str, Any]:
-    """获取页面信息"""
     with _browsers_lock:
         instance = _browsers.get(browser_id)
     if not instance:
@@ -233,70 +236,37 @@ def get_info(browser_id: str) -> Dict[str, Any]:
 
 
 def list_operations() -> List[Dict[str, Any]]:
-    """列出所有保存的操作序列"""
     operations = []
     for f in OPERATIONS_DIR.glob("*.json"):
         try:
             with open(f, 'r', encoding='utf-8') as fp:
                 data = json.load(fp)
-                operations.append({
-                    "name": f.stem,
-                    "steps": len(data.get("steps", [])),
-                    "created": data.get("created")
-                })
+            operations.append({"name": f.stem, "steps": len(data.get("steps", [])), "created": data.get("created")})
         except Exception:
             pass
     return operations
 
 
 def save_operations(name: str, steps: List[Dict]) -> Dict[str, Any]:
-    """保存操作序列"""
     filepath = OPERATIONS_DIR / f"{name}.json"
-    data = {
-        "name": name,
-        "steps": steps,
-        "created": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
     with open(filepath, 'w', encoding='utf-8') as fp:
-        json.dump(data, fp, ensure_ascii=False, indent=2)
+        json.dump({"name": name, "steps": steps, "created": time.strftime("%Y-%m-%d %H:%M:%S")}, fp, ensure_ascii=False, indent=2)
     return {"status": "success", "filepath": str(filepath)}
 
 
 def play_operations(browser_id: str, name: str) -> Dict[str, Any]:
-    """回放操作序列"""
     filepath = OPERATIONS_DIR / f"{name}.json"
     if not filepath.exists():
         return {"status": "error", "message": f"Operation '{name}' not found"}
-    
     with open(filepath, 'r', encoding='utf-8') as fp:
         data = json.load(fp)
-    
-    steps = data.get("steps", [])
     results = []
-    
-    with _browsers_lock:
-        instance = _browsers.get(browser_id)
-    if not instance:
-        return {"status": "error", "message": "Browser not found"}
-    
-    for i, step in enumerate(steps):
-        try:
-            action = step.get("action")
-            selector = step.get("selector")
-            value = step.get("value")
-            index = step.get("index", 0)
-            
-            result = instance.execute_action(action, selector, value, index)
-            results.append({"step": i + 1, "result": result})
-            
-            # 每个操作后等待一小段时间
-            time.sleep(0.5)
-        except Exception as e:
-            results.append({"step": i + 1, "error": str(e)})
-    
+    for i, step in enumerate(data.get("steps", [])):
+        result = execute_action(browser_id, step.get("action"), step.get("selector"), step.get("value"), step.get("index", 0))
+        results.append({"step": i + 1, "result": result})
+        time.sleep(0.2)
     return {"status": "success", "results": results}
 
 
 def is_available() -> bool:
-    """检查模块是否可用"""
-    return SeleniumAvailable
+    return True
