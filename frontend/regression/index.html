@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OmniAgent Browser Regression Fixtures</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --panel: rgba(255, 252, 246, 0.9);
+        --ink: #16202a;
+        --muted: #58636d;
+        --accent: #006b5f;
+        --accent-2: #d95d39;
+        --line: rgba(22, 32, 42, 0.12);
+        --shadow: 0 24px 64px rgba(22, 32, 42, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(0, 107, 95, 0.18), transparent 32%),
+          radial-gradient(circle at 80% 0%, rgba(217, 93, 57, 0.18), transparent 28%),
+          linear-gradient(180deg, #f9f4ea 0%, var(--bg) 100%);
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 48px 20px 72px;
+      }
+
+      .hero {
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 6vw, 60px);
+        line-height: 0.98;
+      }
+
+      .hero p {
+        max-width: 760px;
+        margin: 18px 0 0;
+        font-size: 18px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 18px;
+        margin-top: 28px;
+      }
+
+      .card {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 20px;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.76);
+        border: 1px solid var(--line);
+        text-decoration: none;
+        color: inherit;
+        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+      }
+
+      .card:hover,
+      .card:focus-visible {
+        transform: translateY(-3px);
+        box-shadow: 0 18px 40px rgba(22, 32, 42, 0.12);
+        border-color: rgba(0, 107, 95, 0.28);
+      }
+
+      .card small {
+        color: var(--accent);
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .card h2 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.05;
+      }
+
+      .card p,
+      .checklist li {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .panels {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 18px;
+        margin-top: 24px;
+      }
+
+      .panel {
+        padding: 22px;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+      }
+
+      .panel h3 {
+        margin: 0 0 12px;
+        font-size: 20px;
+      }
+
+      .checklist {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      code {
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(22, 32, 42, 0.06);
+        font-size: 0.95em;
+      }
+
+      @media (max-width: 760px) {
+        .panels {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Phase B Regression</p>
+        <h1>Browser Execution Fixtures</h1>
+        <p>
+          这组页面专门给 <code>click / fill / select / press_key / fill_form / heal</code> 做本地回归。
+          每张页都尽量把一个执行风险收敛成可重复、可观测、可录 workflow 的固定场景。
+        </p>
+        <div class="grid">
+          <a class="card" href="/frontend/regression/native-form.html">
+            <small>P0</small>
+            <h2>Native Form</h2>
+            <p>原生按钮、输入框、下拉框、按键提交，适合验证 native-first 主链。</p>
+          </a>
+          <a class="card" href="/frontend/regression/select-like.html">
+            <small>P0</small>
+            <h2>Select-like Controls</h2>
+            <p>combobox、listbox、datalist、date/time 输入，专门验证复杂控件 fallback。</p>
+          </a>
+          <a class="card" href="/frontend/regression/modal-dynamic.html">
+            <small>P1</small>
+            <h2>Modal + Dynamic List</h2>
+            <p>弹层、局部刷新、分页和陈旧索引风险，适合做失败诊断与自愈闭环验证。</p>
+          </a>
+        </div>
+      </section>
+
+      <section class="panels">
+        <div class="panel">
+          <h3>建议回归顺序</h3>
+          <ol class="checklist">
+            <li>先跑 <code>python3 scripts/self_check.py</code>。</li>
+            <li>先做 <code>Native Form</code>，确认基本 click/fill/select/press_key 没回退。</li>
+            <li>再做 <code>Select-like Controls</code>，观察 complex control 是否仍被识别成 select。</li>
+            <li>最后做 <code>Modal + Dynamic List</code>，确认失败时 trace 和 heal 信息是否足够解释。</li>
+          </ol>
+        </div>
+        <div class="panel">
+          <h3>使用提醒</h3>
+          <ul class="checklist">
+            <li>每个 fixture 都内置事件日志，便于核对动作是否真正触发。</li>
+            <li>如果要录 workflow，优先从这里录，减少第三方页面噪音。</li>
+            <li>若本轮改了执行链，至少重跑所有 P0 页面。</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

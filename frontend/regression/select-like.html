@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Regression Fixture - Select-like Controls</title>
+    <style>
+      :root {
+        --bg: #f1f6f2;
+        --panel: #fcfffc;
+        --ink: #162028;
+        --muted: #60707a;
+        --line: rgba(22, 32, 40, 0.12);
+        --accent: #176c5f;
+        --accent-2: #c8702d;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 100% 0%, rgba(200, 112, 45, 0.18), transparent 26%),
+          radial-gradient(circle at 0% 0%, rgba(23, 108, 95, 0.16), transparent 28%),
+          linear-gradient(180deg, #f9fcf8 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 1140px;
+        margin: 0 auto;
+        padding: 28px 20px 60px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 48px);
+      }
+      .pill {
+        display: inline-flex;
+        padding: 9px 14px;
+        border-radius: 999px;
+        background: rgba(23, 108, 95, 0.12);
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .back {
+        padding: 10px 16px;
+        border-radius: 999px;
+        background: rgba(22, 32, 40, 0.08);
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      .card {
+        padding: 22px;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: 0 18px 42px rgba(22, 32, 40, 0.08);
+      }
+      .field {
+        margin-bottom: 18px;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 700;
+      }
+      input, button {
+        font: inherit;
+      }
+      input[type="text"],
+      input[type="date"],
+      input[type="time"] {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(22, 32, 40, 0.16);
+        background: #fff;
+      }
+      button {
+        cursor: pointer;
+        border: 0;
+        border-radius: 14px;
+        padding: 10px 14px;
+        background: var(--accent);
+        color: #fff;
+      }
+      .combobox-shell {
+        position: relative;
+      }
+      .listbox {
+        margin-top: 10px;
+        border: 1px solid rgba(22, 32, 40, 0.12);
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .listbox[hidden] {
+        display: none;
+      }
+      .option {
+        padding: 12px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(22, 32, 40, 0.08);
+      }
+      .option:last-child {
+        border-bottom: 0;
+      }
+      .option:hover,
+      .option[aria-selected="true"] {
+        background: rgba(23, 108, 95, 0.1);
+      }
+      #event-log {
+        margin: 0;
+        padding-left: 18px;
+        max-height: 460px;
+        overflow: auto;
+        color: var(--muted);
+      }
+      #result {
+        min-height: 86px;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(200, 112, 45, 0.08);
+        white-space: pre-wrap;
+      }
+      @media (max-width: 860px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .header {
+          flex-direction: column;
+          align-items: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <div>
+          <p class="pill">P0 · Complex select regression</p>
+          <h1>Select-like Controls</h1>
+          <p>用于验证 <code>combobox / listbox / datalist / date-like input</code> 是否仍被稳定识别成选择控件。</p>
+        </div>
+        <a class="back" href="/frontend/regression">返回 fixture 目录</a>
+      </div>
+
+      <div class="layout">
+        <section class="card">
+          <div class="field">
+            <label for="assignee-combobox">处理人组合框</label>
+            <div class="combobox-shell">
+              <input id="assignee-combobox" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="assignee-listbox" aria-autocomplete="list" placeholder="输入或选择处理人">
+              <div id="assignee-listbox" class="listbox" role="listbox" hidden>
+                <div class="option" role="option" data-value="alice">Alice</div>
+                <div class="option" role="option" data-value="bob">Bob</div>
+                <div class="option" role="option" data-value="carol">Carol</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="label-search">标签搜索框（datalist）</label>
+            <input id="label-search" list="label-options" placeholder="搜索标签">
+            <datalist id="label-options">
+              <option value="误报"></option>
+              <option value="待升级"></option>
+              <option value="高优先级"></option>
+            </datalist>
+          </div>
+
+          <div class="field">
+            <label for="start-date">开始日期</label>
+            <input id="start-date" type="date">
+          </div>
+
+          <div class="field">
+            <label for="start-time">开始时间</label>
+            <input id="start-time" type="time">
+          </div>
+
+          <div class="field">
+            <button id="commit-button" type="button">提交当前选择</button>
+          </div>
+        </section>
+
+        <aside class="card">
+          <h2>结果摘要</h2>
+          <div id="result">等待输入。</div>
+          <h3>事件日志</h3>
+          <ol id="event-log"></ol>
+        </aside>
+      </div>
+    </main>
+    <script>
+      (function () {
+        const combobox = document.getElementById("assignee-combobox");
+        const listbox = document.getElementById("assignee-listbox");
+        const datalistInput = document.getElementById("label-search");
+        const startDate = document.getElementById("start-date");
+        const startTime = document.getElementById("start-time");
+        const resultNode = document.getElementById("result");
+        const logNode = document.getElementById("event-log");
+        const commitButton = document.getElementById("commit-button");
+        const options = Array.from(listbox.querySelectorAll("[role='option']"));
+
+        function log(message) {
+          const item = document.createElement("li");
+          item.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }) + " · " + message;
+          logNode.prepend(item);
+        }
+
+        function openListbox() {
+          listbox.hidden = false;
+          combobox.setAttribute("aria-expanded", "true");
+        }
+
+        function closeListbox() {
+          listbox.hidden = true;
+          combobox.setAttribute("aria-expanded", "false");
+        }
+
+        function selectOption(option) {
+          options.forEach((node) => {
+            node.setAttribute("aria-selected", node === option ? "true" : "false");
+          });
+          combobox.value = option.textContent.trim();
+          combobox.dispatchEvent(new Event("input", { bubbles: true }));
+          combobox.dispatchEvent(new Event("change", { bubbles: true }));
+          log("combobox -> select -> " + option.textContent.trim());
+          closeListbox();
+        }
+
+        combobox.addEventListener("focus", openListbox);
+        combobox.addEventListener("click", openListbox);
+        combobox.addEventListener("input", function () {
+          openListbox();
+          log("combobox -> input -> " + combobox.value.trim());
+        });
+        combobox.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") {
+            closeListbox();
+          }
+          if (event.key === "ArrowDown") {
+            openListbox();
+          }
+          if (event.key === "Enter") {
+            const exact = options.find((node) => node.textContent.trim().toLowerCase() === combobox.value.trim().toLowerCase());
+            if (exact) {
+              event.preventDefault();
+              selectOption(exact);
+            }
+          }
+        });
+
+        options.forEach((option) => {
+          option.addEventListener("mousedown", function (event) {
+            event.preventDefault();
+          });
+          option.addEventListener("click", function () {
+            selectOption(option);
+          });
+        });
+
+        [datalistInput, startDate, startTime].forEach((node) => {
+          node.addEventListener("input", function () {
+            log(node.id + " -> input -> " + node.value);
+          });
+          node.addEventListener("change", function () {
+            log(node.id + " -> change -> " + node.value);
+          });
+        });
+
+        document.addEventListener("click", function (event) {
+          if (!event.target.closest(".combobox-shell")) {
+            closeListbox();
+          }
+        });
+
+        commitButton.addEventListener("click", function () {
+          const payload = {
+            assignee: combobox.value.trim(),
+            label: datalistInput.value.trim(),
+            start_date: startDate.value,
+            start_time: startTime.value,
+          };
+          resultNode.textContent = "已提交：\n" + JSON.stringify(payload, null, 2);
+          log("commit-button -> click -> " + JSON.stringify(payload));
+        });
+      })();
+    </script>
+  </body>
+</html>

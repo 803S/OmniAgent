@@ -1,0 +1,159 @@
+{
+  "wf_seed_hash_alert_review": {
+    "name": "Hash 告警证据复核",
+    "summary": "围绕当前告警里的 MD5、进程和路径先做页面内证据核对，再决定是否转外部情报补查。",
+    "bind_skill_id": "skill_hash_alert_triage",
+    "site_scope": [
+      "*"
+    ],
+    "require_human_confirm": true,
+    "source_type": "seed",
+    "steps": [
+      {
+        "type": "page_agent_task",
+        "instruction": "在当前告警页面优先定位 MD5 {file_md5}、相关进程 {process_name} 和文件路径 {file_path}，必要时展开详情、滚动证据区或切换标签，把三项信息保持在可见区域。",
+        "success_criteria": "页面上已能同时看到 MD5、进程名和文件路径，或已明确记录哪一项缺失。"
+      },
+      {
+        "type": "ask_human",
+        "question": "这条 Hash 告警当前更接近哪种研判结论？",
+        "reason": "先收敛初判结论和补充说明，再继续整理待补查项，会比直接跳到下一步更稳定。",
+        "suggested_action": "请结合当前页面证据选择结论，并补一条简短说明。",
+        "input_fields": [
+          {
+            "name": "triage_verdict",
+            "label": "初判结论",
+            "type": "select",
+            "required": true,
+            "help_text": "用于区分真实风险、待补查和疑似误报。",
+            "options": [
+              {
+                "label": "更像真实风险",
+                "value": "真实风险"
+              },
+              {
+                "label": "仍需补查",
+                "value": "待补查"
+              },
+              {
+                "label": "更像疑似误报",
+                "value": "疑似误报"
+              }
+            ]
+          },
+          {
+            "name": "triage_note",
+            "label": "补充说明",
+            "type": "textarea",
+            "required": true,
+            "default_value": "先记录当前页面已有证据，再决定是否打开外部情报补查。",
+            "help_text": "可简要记录证据充分性、缺失项或后续动作。"
+          }
+        ],
+        "options": [
+          {
+            "id": "continue",
+            "label": "继续整理结论",
+            "value": "continue",
+            "branch_steps": [
+              {
+                "type": "page_agent_task",
+                "instruction": "根据用户给出的初判结论 {{triage_verdict}} 和补充说明 {{triage_note}}，继续在当前页面整理结论、缺失证据和下一步补查建议；如果仍缺外部情报，请明确提示后续打开情报查询。",
+                "success_criteria": "已把当前结论、缺失证据和下一步建议分开整理，便于继续处置。"
+              }
+            ]
+          },
+          {
+            "id": "cancel",
+            "label": "先停在这里",
+            "value": "cancel",
+            "replace_remaining": true
+          }
+        ]
+      },
+      {
+        "type": "page_agent_task",
+        "instruction": "继续核对处置状态、隔离/拦截结论、最近命中时间和上下游证据。如果页面里没有情报结论，明确提示需要打开外部情报查询进一步补查。",
+        "success_criteria": "已确认当前告警更偏向真实风险、待补查还是疑似误报，并把关键证据保留在当前可见范围。"
+      }
+    ]
+  },
+  "wf_seed_src_report_review": {
+    "name": "SRC 报告证据复核",
+    "summary": "围绕接口路径和 payload 复核漏洞报告证据，先确认可复现性，再检查前置条件和影响描述。",
+    "bind_skill_id": "skill_src_vuln_report",
+    "site_scope": [
+      "*"
+    ],
+    "require_human_confirm": true,
+    "source_type": "seed",
+    "steps": [
+      {
+        "type": "page_agent_task",
+        "instruction": "在当前漏洞报告页面定位接口路径 {page_url}、核心 payload {payload} 和影响描述，必要时展开复现步骤、请求示例或截图区域，把关键证据保持在可见区域。",
+        "success_criteria": "页面上已能同时看到接口路径、payload 和影响描述，或已明确记录缺失项。"
+      },
+      {
+        "type": "ask_human",
+        "question": "这份 SRC 报告当前更接近哪种复核结论？",
+        "reason": "先收敛复核结论和待补信息，再继续整理影响判断，会更贴近真实复核流程。",
+        "suggested_action": "请选择当前结论，并补充仍需作者说明或继续核验的点。",
+        "input_fields": [
+          {
+            "name": "review_decision",
+            "label": "复核结论",
+            "type": "select",
+            "required": true,
+            "options": [
+              {
+                "label": "可复现，需继续确认影响",
+                "value": "可复现待确认影响"
+              },
+              {
+                "label": "信息不足，需补充说明",
+                "value": "信息不足待补充"
+              },
+              {
+                "label": "更像低风险或误报",
+                "value": "低风险或误报"
+              }
+            ]
+          },
+          {
+            "name": "pending_items",
+            "label": "待补信息",
+            "type": "textarea",
+            "required": true,
+            "default_value": "优先确认鉴权前提、触发条件、影响范围和复现步骤是否完整。",
+            "help_text": "可填写需要作者补充的前置条件、角色限制或影响说明。"
+          }
+        ],
+        "options": [
+          {
+            "id": "continue",
+            "label": "继续复核报告",
+            "value": "continue",
+            "branch_steps": [
+              {
+                "type": "page_agent_task",
+                "instruction": "根据用户给出的复核结论 {{review_decision}} 和待补信息 {{pending_items}}，继续在当前页面整理可复现证据、影响判断和待确认项，避免把待补信息误写成既成事实。",
+                "success_criteria": "已把可复现证据、影响判断和待确认项整理成清晰分层。"
+              }
+            ]
+          },
+          {
+            "id": "cancel",
+            "label": "先停在这里",
+            "value": "cancel",
+            "replace_remaining": true
+          }
+        ]
+      },
+      {
+        "type": "page_agent_task",
+        "instruction": "继续检查报告是否说明鉴权前提、用户角色、触发条件和影响范围；如果缺失，请把它们单独列成待补信息，不要自动脑补。",
+        "success_criteria": "已把可复现证据、影响判断和待确认项分开整理，便于继续复核。"
+      }
+    ]
+  }
+}

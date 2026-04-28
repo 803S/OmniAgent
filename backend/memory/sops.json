@@ -1,0 +1,63 @@
+{
+  "skill_hash_alert_triage": {
+    "domain_name": "文件 Hash 告警基础研判",
+    "role_id": "role_sec_expert",
+    "activation_condition": "页面同时出现文件哈希、IOC 或隔离样本等特征时，进入安全告警基础研判。",
+    "exact_match_signatures": [
+      "md5",
+      "sha256",
+      "ioc",
+      "quarantine",
+      "malware"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "file_md5",
+        "instruction": "提取页面中最相关的 32 位 MD5，如果不存在则留空。"
+      },
+      {
+        "field_name": "process_name",
+        "instruction": "提取相关进程名，如 xxx.exe。"
+      },
+      {
+        "field_name": "file_path",
+        "instruction": "提取主要文件路径或隔离路径。"
+      }
+    ],
+    "skills": [
+      {
+        "skill_name": "查询微步文件情报",
+        "action_type": "url_render",
+        "template": "https://x.threatbook.com/v5/file/{file_md5}"
+      }
+    ]
+  },
+  "skill_src_vuln_report": {
+    "domain_name": "SRC 漏洞报告基础提取",
+    "role_id": "role_sec_expert",
+    "activation_condition": "页面包含漏洞、payload、PoC、复现步骤、接口路径等特征时，进入漏洞报告基础提取。",
+    "exact_match_signatures": [
+      "payload",
+      "poc",
+      "xss",
+      "sqli",
+      "sql injection",
+      "漏洞"
+    ],
+    "extraction_tasks": [
+      {
+        "field_name": "page_url",
+        "instruction": "提取漏洞页面或主要接口路径，如 /login、/api/user/list。"
+      },
+      {
+        "field_name": "payload",
+        "instruction": "提取页面中出现的核心 payload 或复现语句。"
+      },
+      {
+        "field_name": "impact",
+        "instruction": "概括漏洞影响点，优先提取原文已有描述。"
+      }
+    ],
+    "skills": []
+  }
+}

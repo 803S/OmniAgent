@@ -1,0 +1,42 @@
+{
+  "tpl_hash_lookup": {
+    "name": "文件 MD5 情报查询",
+    "namespace": "security",
+    "platform": "threatbook",
+    "summary": "把页面里提取出的 MD5 带入情报平台查询，适合 hash 告警初判。",
+    "query_template": "file_md5:{file_md5}",
+    "url_template": "https://x.threatbook.com/v5/file/{file_md5}",
+    "required_fields": [
+      "file_md5"
+    ],
+    "tags": [
+      "hash",
+      "md5",
+      "threat-intel",
+      "sandbox"
+    ],
+    "site_scope": [
+      "*"
+    ]
+  },
+  "tpl_src_payload_review": {
+    "name": "SRC Payload 复核查询",
+    "namespace": "security",
+    "platform": "manual_review",
+    "summary": "围绕页面路径、payload 和影响点整理复核查询语句，便于二次核验。",
+    "query_template": "url:\"{page_url}\" payload:\"{payload}\" impact:\"{impact}\"",
+    "url_template": "",
+    "required_fields": [
+      "page_url",
+      "payload"
+    ],
+    "tags": [
+      "src",
+      "payload",
+      "review"
+    ],
+    "site_scope": [
+      "*"
+    ]
+  }
+}

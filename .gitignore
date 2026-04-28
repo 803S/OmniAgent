@@ -1,0 +1,12 @@
+.DS_Store
+.codex
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local runtime artifacts
+logs/
+backend/memory/omniagent.db
+backend/omniagent.db

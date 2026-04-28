@@ -1,0 +1,34 @@
+{
+  "doc_hash_triage_checklist": {
+    "name": "文件 Hash 告警研判清单",
+    "doc_type": "text",
+    "namespace": "security",
+    "source_type": "seed",
+    "content_text": "1. 先确认页面里提取到的 MD5、进程名和文件路径是否来自同一条告警上下文。\n2. 优先查看情报平台对该 MD5 的首检时间、流行度、厂商检出和家族标签。\n3. 如果只有告警名命中、没有 payload 或执行链证据，先保留误报可能，不要直接判定为真实攻击。\n4. 输出结论时，把已确认事实、仍缺失证据和建议补查项分开描述。",
+    "tags": [
+      "hash",
+      "triage",
+      "soc"
+    ],
+    "site_scope": [
+      "*"
+    ],
+    "rag_mode": "snippet"
+  },
+  "doc_src_report_checklist": {
+    "name": "SRC 漏洞报告复核清单",
+    "doc_type": "text",
+    "namespace": "security",
+    "source_type": "seed",
+    "content_text": "1. 先提取漏洞页面或接口路径、核心 payload、复现步骤和影响描述。\n2. 区分页面现象、接口行为和真正的安全影响，避免把功能缺陷误写成漏洞。\n3. 如果报告缺少鉴权前提、用户角色或触发条件，先列为待补信息，不要擅自补齐。\n4. 输出复核意见时，按“可复现证据 / 影响判断 / 待确认项”三段式整理。",
+    "tags": [
+      "src",
+      "vulnerability",
+      "review"
+    ],
+    "site_scope": [
+      "*"
+    ],
+    "rag_mode": "snippet"
+  }
+}

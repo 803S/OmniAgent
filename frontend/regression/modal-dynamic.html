@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Regression Fixture - Modal Dynamic List</title>
+    <style>
+      :root {
+        --bg: #f5f4fb;
+        --panel: #fff;
+        --ink: #18212c;
+        --muted: #627180;
+        --line: rgba(24, 33, 44, 0.12);
+        --accent: #0a6e8a;
+        --accent-2: #c15b6a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 20% 0%, rgba(10, 110, 138, 0.16), transparent 28%),
+          radial-gradient(circle at 85% 0%, rgba(193, 91, 106, 0.18), transparent 24%),
+          linear-gradient(180deg, #fbfbff 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 28px 20px 60px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 48px);
+      }
+      .pill,
+      .back,
+      button {
+        border-radius: 999px;
+        padding: 10px 16px;
+      }
+      .pill {
+        display: inline-flex;
+        background: rgba(10, 110, 138, 0.12);
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .back {
+        background: rgba(24, 33, 44, 0.08);
+        color: var(--ink);
+        text-decoration: none;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.08fr 0.92fr;
+        gap: 18px;
+      }
+      .card {
+        padding: 22px;
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: 0 18px 42px rgba(24, 33, 44, 0.08);
+      }
+      .toolbar,
+      .list-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      button {
+        border: 0;
+        cursor: pointer;
+        background: var(--accent);
+        color: #fff;
+        font: inherit;
+      }
+      button.secondary {
+        background: rgba(24, 33, 44, 0.08);
+        color: var(--ink);
+      }
+      ul {
+        list-style: none;
+        margin: 18px 0 0;
+        padding: 0;
+      }
+      .ticket {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid rgba(24, 33, 44, 0.1);
+        background: rgba(255, 255, 255, 0.84);
+        margin-bottom: 10px;
+      }
+      .ticket strong {
+        display: block;
+      }
+      .status {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .dialog {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: rgba(10, 16, 26, 0.42);
+        padding: 20px;
+      }
+      .dialog.active {
+        display: grid;
+      }
+      .dialog-panel {
+        width: min(560px, 100%);
+        padding: 24px;
+        border-radius: 28px;
+        background: #fff;
+        box-shadow: 0 24px 72px rgba(10, 16, 26, 0.26);
+      }
+      .field {
+        margin-bottom: 14px;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 700;
+      }
+      input, textarea {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(24, 33, 44, 0.16);
+        font: inherit;
+      }
+      textarea { min-height: 110px; }
+      #result {
+        min-height: 100px;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(193, 91, 106, 0.08);
+        white-space: pre-wrap;
+      }
+      #event-log {
+        margin: 0;
+        padding-left: 18px;
+        max-height: 320px;
+        overflow: auto;
+        color: var(--muted);
+      }
+      @media (max-width: 860px) {
+        .layout { grid-template-columns: 1fr; }
+        .header { flex-direction: column; align-items: start; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <div>
+          <p class="pill">P1 · Dynamic refresh + heal</p>
+          <h1>Modal + Dynamic List</h1>
+          <p>适合验证弹层、局部刷新、索引漂移和 workflow 自愈闭环。</p>
+        </div>
+        <a class="back" href="/frontend/regression">返回 fixture 目录</a>
+      </div>
+
+      <div class="layout">
+        <section class="card">
+          <div class="toolbar">
+            <button id="refresh-list" type="button">刷新工单列表</button>
+            <button id="open-review" class="secondary" type="button">打开复核弹层</button>
+          </div>
+          <ul id="ticket-list"></ul>
+        </section>
+
+        <aside class="card">
+          <h2>结果与日志</h2>
+          <div id="result">等待操作。</div>
+          <h3>事件日志</h3>
+          <ol id="event-log"></ol>
+        </aside>
+      </div>
+    </main>
+
+    <div class="dialog" id="review-dialog" aria-hidden="true">
+      <div class="dialog-panel">
+        <h2>复核弹层</h2>
+        <div class="field">
+          <label for="review-reason">复核说明输入框</label>
+          <textarea id="review-reason" placeholder="请输入复核说明"></textarea>
+        </div>
+        <div class="field">
+          <label for="review-next">下一步处理人</label>
+          <input id="review-next" placeholder="输入下一步处理人">
+        </div>
+        <div class="list-actions">
+          <button id="save-review" type="button">保存复核</button>
+          <button id="close-review" class="secondary" type="button">关闭弹层</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const ticketList = document.getElementById("ticket-list");
+        const resultNode = document.getElementById("result");
+        const logNode = document.getElementById("event-log");
+        const dialog = document.getElementById("review-dialog");
+        const refreshButton = document.getElementById("refresh-list");
+        const openReviewButton = document.getElementById("open-review");
+        const closeReviewButton = document.getElementById("close-review");
+        const saveReviewButton = document.getElementById("save-review");
+        const reviewReason = document.getElementById("review-reason");
+        const reviewNext = document.getElementById("review-next");
+
+        let revision = 1;
+        let selectedTicket = null;
+
+        function log(message) {
+          const item = document.createElement("li");
+          item.textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false }) + " · " + message;
+          logNode.prepend(item);
+        }
+
+        function openDialog(ticketId) {
+          selectedTicket = ticketId || selectedTicket;
+          dialog.classList.add("active");
+          dialog.setAttribute("aria-hidden", "false");
+          log("open-review -> " + (selectedTicket || "none"));
+        }
+
+        function closeDialog() {
+          dialog.classList.remove("active");
+          dialog.setAttribute("aria-hidden", "true");
+        }
+
+        function renderTickets() {
+          const statuses = ["待处理", "待复核", "待升级", "已关闭"];
+          const fragment = document.createDocumentFragment();
+          ticketList.innerHTML = "";
+          for (let index = 0; index < 4; index += 1) {
+            const id = "ticket-" + revision + "-" + (index + 1);
+            const item = document.createElement("li");
+            item.className = "ticket";
+            item.innerHTML = `
+              <div>
+                <strong>${id}</strong>
+                <span class="status">状态：${statuses[(index + revision) % statuses.length]}</span>
+              </div>
+              <div class="list-actions">
+                <button type="button" data-action="claim" data-ticket="${id}">接单按钮</button>
+                <button type="button" class="secondary" data-action="review" data-ticket="${id}">复核按钮</button>
+              </div>
+            `;
+            fragment.appendChild(item);
+          }
+          ticketList.appendChild(fragment);
+          log("ticket-list -> render revision=" + revision);
+        }
+
+        refreshButton.addEventListener("click", function () {
+          revision += 1;
+          renderTickets();
+          resultNode.textContent = "工单列表已刷新到 revision " + revision + "。";
+        });
+
+        openReviewButton.addEventListener("click", function () {
+          openDialog("manual-open");
+        });
+
+        closeReviewButton.addEventListener("click", function () {
+          closeDialog();
+          log("close-review");
+        });
+
+        saveReviewButton.addEventListener("click", function () {
+          const payload = {
+            ticket: selectedTicket || "manual-open",
+            reason: reviewReason.value.trim(),
+            next_owner: reviewNext.value.trim(),
+          };
+          resultNode.textContent = "已保存复核：\n" + JSON.stringify(payload, null, 2);
+          log("save-review -> " + JSON.stringify(payload));
+          closeDialog();
+        });
+
+        reviewReason.addEventListener("input", function () {
+          log("review-reason -> input");
+        });
+        reviewNext.addEventListener("input", function () {
+          log("review-next -> input -> " + reviewNext.value.trim());
+        });
+
+        ticketList.addEventListener("click", function (event) {
+          const actionButton = event.target.closest("button[data-action]");
+          if (!actionButton) {
+            return;
+          }
+          const action = actionButton.getAttribute("data-action");
+          const ticket = actionButton.getAttribute("data-ticket");
+          selectedTicket = ticket;
+          if (action === "claim") {
+            resultNode.textContent = "已接单：" + ticket;
+            log("claim -> " + ticket);
+            return;
+          }
+          openDialog(ticket);
+        });
+
+        renderTickets();
+      })();
+    </script>
+  </body>
+</html>

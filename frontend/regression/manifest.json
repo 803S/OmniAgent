@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "base_path": "/frontend/regression",
+  "fixtures": [
+    {
+      "id": "native_form",
+      "title": "Native Form",
+      "path": "/frontend/regression/native-form.html",
+      "priority": "P0",
+      "covers": ["click", "fill", "select", "press_key", "fill_form"]
+    },
+    {
+      "id": "select_like",
+      "title": "Select-like Controls",
+      "path": "/frontend/regression/select-like.html",
+      "priority": "P0",
+      "covers": ["select", "combobox", "listbox", "datalist", "date_input"]
+    },
+    {
+      "id": "modal_dynamic",
+      "title": "Modal + Dynamic List",
+      "path": "/frontend/regression/modal-dynamic.html",
+      "priority": "P1",
+      "covers": ["click", "fill", "dynamic_list", "heal", "stale_index"]
+    }
+  ]
+}
